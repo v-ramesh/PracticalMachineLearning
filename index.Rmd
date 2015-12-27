@@ -1,0 +1,142 @@
+---
+title: "Practical Machine Learning Course Project"
+date: "December 26, 2015"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+# Background and Introduction
+
+By using devices such as Jawbone Up, Nike FuelBand, and Fitbit, it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The five ways are: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). Only Class A corresponds to correct performance. The goal of this project is to predict the manner in which they did the exercise, i.e., Class A to E. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+# Data Processing
+
+## Load Requisite Libraries
+
+```{r results = 'hide', warning = FALSE}
+library(caret)
+library(rattle)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(repmis)
+```
+
+## Import the data
+
+We download the training and testing data sets from the given URLs.
+
+```{r cache=TRUE}
+# Load Data
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+training <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!",""))
+```
+The outcome variable we are interested in prediciting is `classe`.
+
+## Preprocessing
+
+We delete any columns (predictors) of the training set that contain any missing values. 
+
+```{r}
+# Delete columns containing missing values
+training <- training[, colSums(is.na(training)) == 0]
+testing <- testing[, colSums(is.na(testing)) == 0]
+```
+
+We also remove the first seven predictors since by looking up the meaning of these variables, it seems reasonable to assume that these should not be used to predict the outcome `classe`. 
+
+```{r}
+trainData <- training[, -c(1:7)]
+testData <- testing[, -c(1:7)]
+```
+
+```{r}
+dim(trainData)
+dim(testData)
+```
+
+The cleaned data sets `trainData` and `testData` both have 53 columns. While the first 52 variables are the same in both data sets, the last variable in the case of `trainData` is the response variable `classe` while in the case of `testData`, it is `problem_id`. 
+
+
+## Splitting the Data
+
+We split the cleaned training set `trainData` into a training set (70%) for learning the model, and a cross-validation set (30%) for evaluation of the model.
+
+```{r}
+# Set seed for reproducibility
+set.seed(1234) 
+inTrain <- createDataPartition(trainData$classe, p = 0.7, list = FALSE)
+train <- trainData[inTrain, ]
+valid <- trainData[-inTrain, ]
+```
+
+# Prediction Algorithms
+
+We will explore classification trees and random forests for our prediction algorithms.
+
+## Classification Trees
+
+In practice, k is set to 5 or 10 when doing k-fold cross validation. Here we consider 5-fold cross validation (default setting in `trainControl` function is 10) when implementing the algorithm to save a little computing time. Since data transformations may be less important in non-linear models like classification trees, we do not transform any variables.
+
+```{r cache=TRUE}
+# Classification Tree
+control <- trainControl(method = "cv", number = 5)
+fit_rpart <- train(classe ~ ., data = train, method = "rpart", trControl = control)
+print(fit_rpart, digits = 4)
+```
+
+```{r}
+fancyRpartPlot(fit_rpart$finalModel)
+```
+
+```{r}
+# Predict outcomes for validation set
+predict_rpart <- predict(fit_rpart, valid)
+# Evaluate prediction results
+conf_rpart <- confusionMatrix(valid$classe, predict_rpart); conf_rpart
+error_rpart <- (1 - conf_rpart$overall[1]); error_rpart
+```
+
+From the above results, we see that the the accuracy rate is only 0.489, and therefore the out-of-sample error rate is 0.511. Classification trees therefore do not seem like a very effective strategy for predicting the variable `classe`.
+
+## Random Forests
+
+We now consider the random forest method as our predictive learning algorithm.
+
+```{r cache=TRUE}
+# Random Forest
+fit_rf <- train(classe ~ ., data = train, method = "rf", trControl = control)
+print(fit_rf, digits = 4)
+```
+
+```{r}
+# Predict outcomes for validation set
+predict_rf <- predict(fit_rf, valid)
+# Evaluate prediction results
+conf_rf <- confusionMatrix(valid$classe, predict_rf); conf_rf
+error_rf <- 1- conf_rf$overall[1]; error_rf
+```
+
+From the above results, we see that the accuracy rate is 0.9937, and the out-of-sample error rate is 0.0063. Thus, random forest siginficantly outperforms the classification tree method, in predictive accuracy, for this data set.  This may be due to the fact that many predictors are highly correlated. Random forests chooses a subset of predictors at each split and decorrelates the trees. This leads to high accuracy, although this algorithm is sometimes difficult to interpret and computationally inefficient.
+
+# Prediction on Testing Set
+
+We now use the model constructed using random forests to predict the outcome variable classe for the testing set.
+
+```{r}
+# Predict outcomes for test set
+answers <- predict(fit_rf, testData)
+answers
+```
+
+In submitting these results to the course website, we found that all of them were correct.
+
+# Conclusion
+
+In this report, we have used machine learning algorithms to predict how an exercise was performed based on data from activity monitors. We split the training set into a cross-training set (used to build the prediction algorithm) and a validation set (used to evalute out-of-sample errors) with 70% of the data being included in the cross-training set and 30% in the validation set. We considered decision trees and random forests for the machine learning algorithms, and found random forests to be significantly better in their predictive accuracy. Our final machine learning algorithm was therefore chosen to be the one based on random forests. Based on cross-validation with a random 70-30 split, we expect the out-of-sample error rate to be 0.0063. We have run our final algorithm on the 20 test cases provided on which all the predictions turned out to be correct.
+
